@@ -1,10 +1,10 @@
-# [NTIRE 20245 Challenge on Efficient Super-Resolution](https://cvlai.net/ntire/2025/) @ [CVPR 2025](https://cvpr2025.thecvf.com/)
+# [NTIRE 2025 Challenge on Efficient Super-Resolution](https://cvlai.net/ntire/2025/) @ [CVPR 2025](https://cvpr2025.thecvf.com/)
 
 ### 📖 SAFMNv3: Simple Feature Modulation Network for Real-Time Image Super-Resolution
 
 ---
 <p align="center">
-  <img width="800" src="./figs/safmnv3_architecture.png">
+  <img width="800" src="../figs/safmnv3_architecture.png">
 </p>
 
 *An overview of the proposed SAFMNv3.*
