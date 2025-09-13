@@ -5,7 +5,6 @@ requirements.txt
 setup.cfg
 setup.py
 basicsr/__init__.py
-basicsr/pro_train.py
 basicsr/test.py
 basicsr/train.py
 basicsr/version.py
@@ -19,6 +18,8 @@ basicsr/archs/__init__.py
 basicsr/archs/arch_util.py
 basicsr/archs/discriminator_arch.py
 basicsr/archs/safmn_arch.py
+basicsr/archs/safmn_bcie_arch.py
+basicsr/archs/safmn_ntire_arch.py
 basicsr/archs/vgg_arch.py
 basicsr/data/__init__.py
 basicsr/data/data_sampler.py
@@ -34,6 +35,7 @@ basicsr/data/transforms.py
 basicsr/data/video_test_dataset.py
 basicsr/data/vimeo90k_dataset.py
 basicsr/losses/__init__.py
+basicsr/losses/ldl_loss.py
 basicsr/losses/loss_util.py
 basicsr/losses/losses.py
 basicsr/metrics/__init__.py
@@ -44,7 +46,6 @@ basicsr/metrics/niqe_pris_params.npz
 basicsr/metrics/psnr_ssim.py
 basicsr/models/__init__.py
 basicsr/models/base_model.py
-basicsr/models/edvr_model.py
 basicsr/models/esrgan_model.py
 basicsr/models/hifacegan_model.py
 basicsr/models/lr_scheduler.py
@@ -68,6 +69,7 @@ basicsr/ops/upfirdn2d/upfirdn2d.py
 basicsr/ops/upfirdn2d/src/upfirdn2d.cpp
 basicsr/ops/upfirdn2d/src/upfirdn2d_kernel.cu
 basicsr/utils/__init__.py
+basicsr/utils/colorfix.py
 basicsr/utils/diffjpeg.py
 basicsr/utils/dist_util.py
 basicsr/utils/download_util.py

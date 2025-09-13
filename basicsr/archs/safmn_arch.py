@@ -104,13 +104,13 @@ class SAFM(nn.Module):
         chunk_dim = dim // n_levels
 
         # Spatial Weighting
-        self.mfr = nn.ModuleList([nn.Conv2d(chunk_dim, chunk_dim, 3, 1, 1, groups=chunk_dim) for i in range(self.n_levels)])
+        self.mfr = nn.ModuleList([nn.Conv2d(chunk_dim, chunk_dim, 3, 1, 1, groups=chunk_dim) for _ in range(self.n_levels)])
         
-        # # Feature Aggregation
+        # Feature Aggregation
         self.aggr = nn.Conv2d(dim, dim, 1, 1, 0)
         
         # Activation
-        self.act = nn.GELU() 
+        self.act = nn.GELU()
 
     def forward(self, x):
         h, w = x.size()[-2:]
@@ -119,8 +119,10 @@ class SAFM(nn.Module):
         out = []
         for i in range(self.n_levels):
             if i > 0:
-                p_size = (h//2**i, w//2**i)
-                s = F.adaptive_max_pool2d(xc[i], p_size)
+                # v-- 修改开始 --v
+                down_factor = 2**i
+                s = F.max_pool2d(xc[i], kernel_size=down_factor, stride=down_factor)
+                # ^-- 修改结束 --^
                 s = self.mfr[i](s)
                 s = F.interpolate(s, size=(h, w), mode='nearest')
             else:
@@ -130,6 +132,46 @@ class SAFM(nn.Module):
         out = self.aggr(torch.cat(out, dim=1))
         out = self.act(out) * x
         return out
+
+    # def forward(self, x):
+    #     h, w = x.size()[-2:]
+
+    #     xc = x.chunk(self.n_levels, dim=1)
+    #     out = []
+    #     for i in range(self.n_levels):
+    #         s = xc[i]
+    #         if i > 0:
+    #             # 使用多次固定内核的max_pool2d替换adaptive_max_pool2d，以避免ONNX导出时output_size非常量问题
+    #             for _ in range(i):
+    #                 s = F.max_pool2d(s, kernel_size=2, stride=2)
+    #             s = self.mfr[i](s)
+    #             s = F.interpolate(s, size=(h, w), mode='nearest')
+    #         else:
+    #             s = self.mfr[i](s)
+    #         out.append(s)
+
+    #     out = self.aggr(torch.cat(out, dim=1))
+    #     out = self.act(out) * x
+    #     return out
+
+    # def forward(self, x):
+    #     h, w = x.size()[-2:]
+
+    #     xc = x.chunk(self.n_levels, dim=1)
+    #     out = []
+    #     for i in range(self.n_levels):
+    #         if i > 0:
+    #             p_size = (h//2**i, w//2**i)
+    #             s = F.adaptive_max_pool2d(xc[i], p_size)
+    #             s = self.mfr[i](s)
+    #             s = F.interpolate(s, size=(h, w), mode='nearest')
+    #         else:
+    #             s = self.mfr[i](xc[i])
+    #         out.append(s)
+
+    #     out = self.aggr(torch.cat(out, dim=1))
+    #     out = self.act(out) * x
+    #     return out
 
 class AttBlock(nn.Module):
     def __init__(self, dim, ffn_scale=2.0):

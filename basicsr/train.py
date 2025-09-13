@@ -31,6 +31,7 @@ def create_train_val_dataloader(opt, logger):
     train_loader, val_loaders = None, []
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train':
+            logger.info(f'Create training dataset {dataset_opt["name"]}.')
             dataset_enlarge_ratio = dataset_opt.get('dataset_enlarge_ratio', 1)
             train_set = build_dataset(dataset_opt)
             train_sampler = EnlargedSampler(train_set, opt['world_size'], opt['rank'], dataset_enlarge_ratio)
@@ -54,6 +55,7 @@ def create_train_val_dataloader(opt, logger):
                         f'\n\tRequire iter number per epoch: {num_iter_per_epoch}'
                         f'\n\tTotal epochs: {total_epochs}; iters: {total_iters}.')
         elif phase.split('_')[0] == 'val':
+            logger.info(f'Create val dataset {dataset_opt["name"]}.')
             val_set = build_dataset(dataset_opt)
             val_loader = build_dataloader(
                 val_set, dataset_opt, num_gpu=opt['num_gpu'], dist=opt['dist'], sampler=None, seed=opt['manual_seed'])
@@ -121,7 +123,10 @@ def train_pipeline(root_path):
     train_loader, train_sampler, val_loaders, total_epochs, total_iters = result
 
     # create model
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(opt)
+    model.net_g.to(device)
+
     if resume_state:  # resume training
         model.resume_training(resume_state)  # handle optimizers and schedulers
         logger.info(f"Resuming training from epoch: {resume_state['epoch']}, " f"iter: {resume_state['iter']}.")
