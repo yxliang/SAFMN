@@ -131,8 +131,12 @@ if __name__ == "__main__":
     # model = model = SAFMN(dim=128, n_blocks=16, ffn_scale=2.0, upscaling_factor=2) 
 
     # pretrained_model = 'experiments/pretrained_models/SAFMN_L_Real_LSDIR_x2.pth'
-    model = model = SAFMN(dim=36, n_blocks=8, ffn_scale=2.0, upscaling_factor=5) 
-    pretrained_model = 'experiments/pretrained_models/net_g_5500.pth'
+    # model = model = SAFMN(dim=36, n_blocks=8, ffn_scale=2.0, upscaling_factor=5) 
+    # pretrained_model = 'experiments/pretrained_models/net_g_latest.pth'
+    
+    model = model = SAFMN(dim=128, n_blocks=16, ffn_scale=2.0, upscaling_factor=5) 
+    pretrained_model = 'experiments/SAFMN_b64c36n8_500K_DF2K_x5_L1_0.05FFT/models/net_g_6000.pth'
+
     model.load_state_dict(torch.load(pretrained_model)['params'], strict=True)
 
     ###################Onnx export#################

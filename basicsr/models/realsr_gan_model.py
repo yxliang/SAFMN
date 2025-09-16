@@ -2,6 +2,7 @@ import numpy as np
 import random
 import torch
 from basicsr.data.degradations import random_add_gaussian_noise_pt, random_add_poisson_noise_pt
+from basicsr.losses import build_loss
 from basicsr.data.transforms import paired_random_crop
 from basicsr.models.srgan_model import SRGANModel
 from basicsr.utils import DiffJPEG, USMSharp
@@ -26,6 +27,23 @@ class RealGANModel(SRGANModel):
         self.jpeger = DiffJPEG(differentiable=False).cuda()  # simulate JPEG compression artifacts
         self.usm_sharpener = USMSharp().cuda()  # do usm sharpening
         self.queue_size = opt.get('queue_size', 180)
+
+    def init_training_settings(self):
+        super(RealGANModel, self).init_training_settings()
+        train_opt = self.opt['train']
+
+        # define(add) new losses
+        if train_opt.get('artifacts_opt'):
+            self.cri_artifacts = build_loss(train_opt['artifacts_opt']).to(self.device)
+        else:
+            self.cri_artifacts = None
+
+        if train_opt.get('lpips_opt'):
+            self.cri_lpips = build_loss(train_opt['lpips_opt']).to(self.device)
+        else:
+            self.cri_lpips = None
+
+
         
 
     @torch.no_grad()
@@ -69,7 +87,10 @@ class RealGANModel(SRGANModel):
     def feed_data(self, data):
         """Accept data from dataloader, and then add two-order degradations to obtain LQ images.
         """
-        if self.is_train and self.opt.get('high_order_degradation', True):
+        # is_train is not used, as the degradation is only applied when kernels are provided
+        if 'kernel1' in data:
+            # high-order degradation synthesis
+
             # training data synthesis
             self.gt = data['gt'].to(self.device)
             self.gt_usm = self.usm_sharpener(self.gt)
