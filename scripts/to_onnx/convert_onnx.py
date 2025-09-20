@@ -9,6 +9,7 @@ import torch.onnx
 from basicsr.archs.safmn_arch import SAFMN
 from basicsr.archs.safmnv3_arch import SAFMNV3
 from basicsr.archs.tssr_arch import TSSR
+from basicsr.archs.catanet_arch import CATANet
 import onnxslim
 
 def convert_onnx(model, output_folder, is_dynamic_batches=False): 
@@ -159,7 +160,24 @@ class ModelWithColorCorrection(torch.nn.Module):
         return output_corrected
 
 if __name__ == "__main__":
+    from fvcore.nn import flop_count_table, FlopCountAnalysis, ActivationCountAnalysis    
+    # x = torch.randn(1, 3, 768, 560)
+    x = torch.randn(1, 3, 256, 256)
+    model = CATANet(dim=40, n_blocks=6, qk_dim=36, mlp_dim=96, heads=4, upscaling_factor=5)
+    print(model)
+    print(f'params: {sum(map(lambda x: x.numel(), model.parameters()))}')
+    print(flop_count_table(FlopCountAnalysis(model, x), activations=ActivationCountAnalysis(model, x)))
+    output = model(x)
+    print(output.shape)
+
     model = TSSR(dim=32, n_blocks=4, upscaling_factor=5)
+    print(model)
+    print(f'params: {sum(map(lambda x: x.numel(), model.parameters()))}')
+    print(flop_count_table(FlopCountAnalysis(model, x), activations=ActivationCountAnalysis(model, x)))
+    output = model(x)
+    print(output.shape)
+
+    # load pretrained model
     pretrained_model = 'experiments/TSSR_b64c32n4_500K_DF2K_x5_L1_0.05FFT/models/net_g_14000.pth'
     # model = SAFMNV3(dim=40, n_blocks=6, ffn_scale=2.0, upscaling_factor=5) 
     # pretrained_model = 'experiments/SAFMN_b32c40n6_500K_SRGAN_x5_L1_GAN/models/net_g_9000.pth'

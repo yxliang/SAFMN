@@ -12,8 +12,8 @@ datasets:
   train:
     name: DF2K
     type: PairedImageDataset
-    dataroot_gt: F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_HR_sub
-    dataroot_lq: F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_LR_real/X5_sub
+    dataroot_gt: F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_HR
+    dataroot_lq: F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_LR_real/X5
     filename_tmpl: '{}'
     io_backend:
       type: disk
@@ -24,10 +24,10 @@ datasets:
 
     # data loader
     use_shuffle: true
-    num_worker_per_gpu: 8 # Adjust based on your system
-    batch_size_per_gpu: 64
+    num_worker_per_gpu: 12 # Adjust based on your system
+    batch_size_per_gpu: 256 #4096 #
     dataset_enlarge_ratio: 1
-    prefetch_mode: cuda ~ ## Use prefetch for better performance on GPU
+    prefetch_mode:  cuda #~ #  Use prefetch for better performance on GPU
     pin_memory: true #false # 
 
   # we use multiple validation datasets. The SR benchmark datasets can be download from: https://cv.snu.ac.kr/research/EDSR/benchmark.tar

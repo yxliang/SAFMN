@@ -207,13 +207,11 @@ class TAB(nn.Module):
         return rearrange(x, 'b (h w) c->b c h w',h=h)
         
         
-        
-
 def patch_divide(x, step, ps):
-    """Crop image into patches.
+    """Crop image into patches using F.unfold, which is more friendly to ONNX and dynamic shapes.
     Args:
         x (Tensor): Input feature map of shape(b, c, h, w).
-        step (int): Divide step.
+        step (int): Stride for unfolding.
         ps (int): Patch size.
     Returns:
         crop_x (Tensor): Cropped patches.
@@ -221,70 +219,54 @@ def patch_divide(x, step, ps):
         nw (int): Number of patches along the vertical direction.
     """
     b, c, h, w = x.size()
-    if h == ps and w == ps:
-        step = ps
-    crop_x = []
-    nh = 0
-    for i in range(0, h + step - ps, step):
-        top = i
-        down = i + ps
-        if down > h:
-            top = h - ps
-            down = h
-        nh += 1
-        for j in range(0, w + step - ps, step):
-            left = j
-            right = j + ps
-            if right > w:
-                left = w - ps
-                right = w
-            crop_x.append(x[:, :, top:down, left:right])
-    nw = len(crop_x) // nh
-    crop_x = torch.stack(crop_x, dim=0)  # (n, b, c, ps, ps)
-    crop_x = crop_x.permute(1, 0, 2, 3, 4).contiguous()  # (b, n, c, ps, ps)
-    return crop_x, nh, nw
+    # Pad to make dimensions compatible with sliding window
+    pad_h = (step - (h - ps) % step) % step
+    pad_w = (step - (w - ps) % step) % step
+    x_padded = F.pad(x, (0, pad_w, 0, pad_h), 'replicate')
+
+    h_padded, w_padded = x_padded.shape[-2:]
+    patches = F.unfold(x_padded, kernel_size=ps, stride=step)
+
+    nh = (h_padded - ps) // step + 1
+    nw = (w_padded - ps) // step + 1
+
+    patches = patches.view(b, c, ps, ps, nh * nw).permute(0, 4, 1, 2, 3).contiguous()
+    return patches, nh, nw
 
 
-def patch_reverse(crop_x, x, step, ps):
-    """Reverse patches into image.
+def patch_reverse(crop_x, x_shape, step, ps, nh, nw):
+    """Reverse patches into image using F.fold.
     Args:
         crop_x (Tensor): Cropped patches.
-        x (Tensor): Feature map of shape(b, c, h, w).
-        step (int): Divide step.
+        x_shape (torch.Size): The shape of the original image.
+        step (int): Stride for folding.
         ps (int): Patch size.
+        nh (int): Number of patches along the horizontal direction.
+        nw (int): Number of patches along the vertical direction.
     Returns:
         output (Tensor): Reversed image.
     """
-    b, c, h, w = x.size()
-    output = torch.zeros_like(x)
-    index = 0
-    for i in range(0, h + step - ps, step):
-        top = i
-        down = i + ps
-        if down > h:
-            top = h - ps
-            down = h
-        for j in range(0, w + step - ps, step):
-            left = j
-            right = j + ps
-            if right > w:
-                left = w - ps
-                right = w
-            output[:, :, top:down, left:right] += crop_x[:, index]
-            index += 1
-    for i in range(step, h + step - ps, step):
-        top = i
-        down = i + ps - step
-        if top + ps > h:
-            top = h - ps
-        output[:, :, top:down, :] /= 2
-    for j in range(step, w + step - ps, step):
-        left = j
-        right = j + ps - step
-        if left + ps > w:
-            left = w - ps
-        output[:, :, :, left:right] /= 2
-    return output
+    b, c, h, w = x_shape
+    n = nh * nw
+    assert n == crop_x.shape[1], f"Number of patches mismatch: {n} vs {crop_x.shape[1]}"
+
+    crop_x = crop_x.permute(0, 2, 3, 4, 1).contiguous().view(b, c * ps * ps, n)
+
+    # Padded size
+    pad_h = (step - (h - ps) % step) % step
+    pad_w = (step - (w - ps) % step) % step
+    h_padded, w_padded = h + pad_h, w + pad_w
+
+    output = F.fold(crop_x, output_size=(h_padded, w_padded), kernel_size=ps, stride=step)
+
+    # Create a divisor to average overlapping regions
+    divisor = torch.ones((b, c, h_padded, w_padded), device=crop_x.device)
+    divisor_unfolded = F.unfold(divisor, kernel_size=ps, stride=step)
+    divisor = F.fold(divisor_unfolded, output_size=(h_padded, w_padded), kernel_size=ps, stride=step)
+
+    output = output / divisor.clamp(min=1.0)
+
+    return output[:, :, :h, :w]
 
 
 class PreNorm(nn.Module):
@@ -301,8 +283,6 @@ class PreNorm(nn.Module):
 
     def forward(self, x, **kwargs):
         return self.fn(self.norm(x), **kwargs)
-
-
 
 class dwconv(nn.Module):
     def __init__(self, hidden_features, kernel_size=5):
@@ -336,7 +316,6 @@ class ConvFFN(nn.Module):
         x = self.fc2(x)
         return x
 
-
 class Attention(nn.Module):
     """Attention module.
     Args:
@@ -357,8 +336,6 @@ class Attention(nn.Module):
         self.to_k = nn.Linear(dim, qk_dim, bias=False)
         self.to_v = nn.Linear(dim, dim, bias=False)
         self.proj = nn.Linear(dim, dim, bias=False)
-        
-        
 
     def forward(self, x):
         q, k, v = self.to_q(x), self.to_k(x), self.to_v(x)
@@ -398,51 +375,42 @@ class LRSA(nn.Module):
         crop_x = attn(crop_x) + crop_x
         crop_x = rearrange(crop_x, '(b n) (h w) c  -> b n c h w', n=n, w=pw)
         
-        x = patch_reverse(crop_x, x, step, ps)
+        x = patch_reverse(crop_x, x.size(), step, ps, nh, nw)
         _, _, h, w = x.shape
         x = rearrange(x, 'b c h w-> b (h w) c')
         x = ff(x, x_size=(h, w)) + x
         x = rearrange(x, 'b (h w) c->b c h w', h=h)
         
         return x
-
-
     
 @ARCH_REGISTRY.register()
 class CATANet(nn.Module):
-    setting = dict(dim=40, block_num=8, qk_dim=36, mlp_dim=96, heads=4, 
-                     patch_size=[16, 20, 24, 28, 16, 20, 24, 28])
-
-    def __init__(self,in_chans=3,n_iters=[5,5,5,5,5,5,5,5],
-                 num_tokens=[16,32,64,128,16,32,64,128],
-                 group_size=[256,128,64,32,256,128,64,32],
-                 upscale: int = 4):
+    def __init__(self, num_in_ch=3, num_out_ch=3, dim=40, n_blocks=8, upscaling_factor=4,
+                 qk_dim=36, mlp_dim=96, heads=4,
+                 patch_size=None, n_iters=None, num_tokens=None, group_size=None):
         super().__init__()
         
-    
-        self.dim = self.setting['dim']
-        self.block_num = self.setting['block_num']
-        self.patch_size = self.setting['patch_size']
-        self.qk_dim = self.setting['qk_dim']
-        self.mlp_dim = self.setting['mlp_dim']
-        self.upscale = upscale
-        self.heads = self.setting['heads']
-        
-        
+        self.dim = dim
+        self.n_blocks = n_blocks
+        self.qk_dim = qk_dim
+        self.mlp_dim = mlp_dim
+        self.upscaling_factor = upscaling_factor
+        self.heads = heads
 
-
-        self.n_iters = n_iters
-        self.num_tokens = num_tokens
-        self.group_size = group_size
+        # Set default values for list-based parameters
+        self.patch_size = patch_size if patch_size is not None else [16, 20, 24, 28, 16, 20, 24, 28]
+        self.n_iters = n_iters if n_iters is not None else [5] * n_blocks
+        self.num_tokens = num_tokens if num_tokens is not None else [16, 32, 64, 128, 16, 32, 64, 128]
+        self.group_size = group_size if group_size is not None else [256, 128, 64, 32, 256, 128, 64, 32]
     
         #-----------1 shallow--------------
-        self.first_conv = nn.Conv2d(in_chans, self.dim, 3, 1, 1)
+        self.first_conv = nn.Conv2d(num_in_ch, self.dim, 3, 1, 1)
 
         #----------2 deep--------------
         self.blocks = nn.ModuleList()
         self.mid_convs = nn.ModuleList()
    
-        for i in range(self.block_num):
+        for i in range(self.n_blocks):
           
             self.blocks.append(nn.ModuleList([TAB(self.dim, self.qk_dim, self.mlp_dim,
                                                                  self.heads, self.n_iters[i], 
@@ -452,20 +420,10 @@ class CATANet(nn.Module):
             self.mid_convs.append(nn.Conv2d(self.dim, self.dim,3,1,1))
             
         #----------3 reconstruction---------
-        
-      
-     
-        if upscale == 4:
-            self.upconv1 = nn.Conv2d(self.dim, self.dim * 4, 3, 1, 1, bias=True)
-            self.upconv2 = nn.Conv2d(self.dim, self.dim * 4, 3, 1, 1, bias=True)
-            self.pixel_shuffle = nn.PixelShuffle(2)
-        elif upscale == 2 or upscale == 3:
-            self.upconv = nn.Conv2d(self.dim, self.dim * (upscale ** 2), 3, 1, 1, bias=True)
-            self.pixel_shuffle = nn.PixelShuffle(upscale)
-    
-        self.last_conv = nn.Conv2d(self.dim, in_chans, 3, 1, 1)
-        if upscale != 1:
-            self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
+        self.upsampler = nn.Sequential(
+            nn.Conv2d(self.dim, num_out_ch * (upscaling_factor ** 2), 3, 1, 1),
+            nn.PixelShuffle(upscaling_factor)
+        )
         
         
         self.apply(self._init_weights)
@@ -480,7 +438,7 @@ class CATANet(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     def forward_features(self, x):
-        for i in range(self.block_num):
+        for i in range(self.n_blocks):
             residual = x
       
             global_attn,local_attn = self.blocks[i]
@@ -492,25 +450,15 @@ class CATANet(nn.Module):
             x = residual + self.mid_convs[i](x)
         return x
         
-    def forward(self, x):
-        
-        if self.upscale != 1: 
-            base = F.interpolate(x, scale_factor=self.upscale, mode='bilinear', align_corners=False)
+    def forward(self, x):        
+        if self.upscaling_factor != 1: 
+            base = F.interpolate(x, scale_factor=self.upscaling_factor, mode='bilinear', align_corners=False)
         else: 
             base = x
         x = self.first_conv(x)
         
-   
         x = self.forward_features(x) + x
-    
-        if self.upscale == 4:
-            out = self.lrelu(self.pixel_shuffle(self.upconv1(x)))
-            out = self.lrelu(self.pixel_shuffle(self.upconv2(out)))
-        elif self.upscale == 1:
-            out = x
-        else:
-            out = self.lrelu(self.pixel_shuffle(self.upconv(x)))
-        out = self.last_conv(out) + base
+        out = self.upsampler(x) + base
        
     
         return out
@@ -520,15 +468,19 @@ class CATANet(nn.Module):
         num_parameters = sum(map(lambda x: x.numel(), self.parameters()))
         return '#Params of {}: {:<.4f} [K]'.format(self._get_name(),
                                                       num_parameters / 10 ** 3) 
-  
-  
-
 
 if __name__ == '__main__':
+    from fvcore.nn import flop_count_table, FlopCountAnalysis, ActivationCountAnalysis    
 
+    x = torch.randn(1, 3, 768, 560)
+    model = CATANet(dim=40, n_blocks=6, qk_dim=36, mlp_dim=96, heads=4, upscaling_factor=5)
 
-    model = CATANet(upscale=3).cuda()
-    x = torch.randn(2, 3, 128, 128).cuda()
+    # model = CATANet(upscaling_factor=3).cuda()
+    # x = torch.randn(2, 3, 128, 128).cuda()
     print(model)
+    print(f'params: {sum(map(lambda x: x.numel(), model.parameters()))}')
+    print(flop_count_table(FlopCountAnalysis(model, x), activations=ActivationCountAnalysis(model, x)))
+    output = model(x)
+    print(output.shape)
  
   
