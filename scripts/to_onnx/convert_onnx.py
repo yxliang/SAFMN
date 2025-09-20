@@ -7,13 +7,15 @@ import onnxruntime as ort
 import torch  
 import torch.onnx 
 from basicsr.archs.safmn_arch import SAFMN
+from basicsr.archs.safmnv3_arch import SAFMNV3
+from basicsr.archs.tssr_arch import TSSR
 import onnxslim
 
 def convert_onnx(model, output_folder, is_dynamic_batches=False): 
     model.eval() 
 
     fake_x = torch.rand(1, 3, 560, 768, requires_grad=False)
-    output_name = os.path.join(output_folder, 'SAFMN_560_768_x5.onnx')
+    output_name = os.path.join(output_folder, 'TSSR_560_768_x5.onnx')
     dynamic_params = None
     if is_dynamic_batches:
         # dynamic_params = {'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
@@ -127,17 +129,45 @@ def test_onnx(onnx_model, input_path, save_path):
         cv2.imwrite(os.path.join(save_path, f'{imgname}_results.jpg'), output)
 
 
-if __name__ == "__main__":
-    # model = model = SAFMN(dim=128, n_blocks=16, ffn_scale=2.0, upscaling_factor=2) 
+class ModelWithColorCorrection(torch.nn.Module):
+    """
+    A wrapper model to add color correction to the base model.
+    It maps the mean and variance of the output image to match those of the input image.
+    """
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
 
-    # pretrained_model = 'experiments/pretrained_models/SAFMN_L_Real_LSDIR_x2.pth'
-    # model = model = SAFMN(dim=36, n_blocks=8, ffn_scale=2.0, upscaling_factor=5) 
-    # pretrained_model = 'experiments/pretrained_models/net_g_latest.pth'
-    
-    model = model = SAFMN(dim=128, n_blocks=16, ffn_scale=2.0, upscaling_factor=5) 
-    pretrained_model = 'experiments/SAFMN_b64c36n8_500K_DF2K_x5_L1_0.05FFT/models/net_g_6000.pth'
+    def forward(self, x):
+        # 1. Calculate mean and variance of the input image per channel. keepdim=True is important for broadcasting.
+        mean_in = torch.mean(x, dim=[2, 3], keepdim=True)
+        var_in = torch.var(x, dim=[2, 3], keepdim=True)
+        std_in = torch.sqrt(var_in)
+
+        # 2. Get the output from the base SR model.
+        output = self.model(x)
+
+        # 3. Calculate mean and variance of the output image per channel.
+        mean_out = torch.mean(output, dim=[2, 3], keepdim=True)
+        var_out = torch.var(output, dim=[2, 3], keepdim=True)
+        std_out = torch.sqrt(var_out)
+
+        # 4. Apply color correction.
+        eps = 1e-5
+        output_corrected = (output - mean_out) / (std_out + eps) * std_in + mean_in
+
+        return output_corrected
+
+if __name__ == "__main__":
+    model = TSSR(dim=32, n_blocks=4, upscaling_factor=5)
+    pretrained_model = 'experiments/TSSR_b64c32n4_500K_DF2K_x5_L1_0.05FFT/models/net_g_14000.pth'
+    # model = SAFMNV3(dim=40, n_blocks=6, ffn_scale=2.0, upscaling_factor=5) 
+    # pretrained_model = 'experiments/SAFMN_b32c40n6_500K_SRGAN_x5_L1_GAN/models/net_g_9000.pth'
 
     model.load_state_dict(torch.load(pretrained_model)['params'], strict=True)
+
+    # Wrap the model with the color correction module.
+    # model = ModelWithColorCorrection(model)
 
     ###################Onnx export#################
     output_folder = 'scripts/convert' 
@@ -146,7 +176,8 @@ if __name__ == "__main__":
     # convert_pt(model, output_folder)
 
     ###################Test the converted model #################
-    onnx_model = 'scripts/convert/SAFMN_560_768_x5.onnx'
+    onnx_model = 'scripts/convert/TSSR_560_768_x5.onnx'
+    # onnx_model = 'scripts/convert/SAFMN_560_768_x5.onnx'
     input_path = '../Datasets/SuperResolution/DeepSR_real/DF2K_val_LR_real/X5'#'datasets/real_test'
     save_path = 'results/onnx_results'
     test_onnx(onnx_model, input_path, save_path)

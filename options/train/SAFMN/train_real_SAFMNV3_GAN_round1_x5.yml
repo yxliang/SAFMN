@@ -1,0 +1,151 @@
+# general settings
+name: SAFMN_b32c40n6_500K_SRGAN_x5_L1_GAN # Renamed for clarity
+model_type: SRGANModel # Changed to SRGANModel for paired data GAN training
+scale: 5
+num_gpu: 1 # set num_gpu: 0 for cpu mode
+manual_seed: 10
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: DF2K
+    type: PairedImageDataset
+    dataroot_gt: F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_HR
+    dataroot_lq: F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_LR_real/X5
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    gt_size: 320
+    use_hflip: true
+    use_rot: true
+
+    # data loader
+    use_shuffle: true
+    num_worker_per_gpu: 8 # Adjust based on your system
+    batch_size_per_gpu: 16 # Reduced batch size to prevent OOM error
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~ #cuda # Use prefetch for better performance on GPU
+    pin_memory: false # true
+
+  # we use multiple validation datasets. The SR benchmark datasets can be download from: https://cv.snu.ac.kr/research/EDSR/benchmark.tar
+  val:
+    name: DIV2K_val100
+    type: PairedImageDataset
+    dataroot_gt: F:/Datasets/SuperResolution/DeepSR_real/DF2K_val_HR
+    dataroot_lq: F:/Datasets/SuperResolution/DeepSR_real/DF2K_val_LR_real/X5
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: SAFMNV3
+  dim: 40
+  n_blocks: 6
+  ffn_scale: 2.0
+  upscaling_factor: 5
+
+network_d:
+  type: UNetDiscriminatorSN
+  num_in_ch: 3
+  num_feat: 64
+  skip_connection: True
+
+# path
+path:
+  pretrain_network_g: F:/SAFMN/experiments/pretrained_models/SAFMNV3_DF2K_x5.pth
+  strict_load_g: true
+  pretrain_network_d: ~
+  strict_load_d: true
+  resume_state: ~
+
+
+# training settings
+train:
+  ema_decay: 0.999
+  optim_g:
+    type: Adam
+    lr: !!float 2e-5  # 降低学习率以稳定训练
+    weight_decay: 0
+    betas: [0.9, 0.99]
+  
+  optim_d:
+    type: Adam
+    lr: !!float 2e-5  # 降低学习率以稳定训练
+    weight_decay: 0
+    betas: [0.9, 0.99]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [50000, 100000, 200000, 300000, 400000]
+    gamma: 0.5
+
+  total_iter: 500000
+  warmup_iter: -1  # no warm up
+
+  # losses
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+
+  # perceptual loss (content and style losses)
+  perceptual_opt:
+    type: PerceptualLoss
+    layer_weights:
+      # before relu
+      'conv1_2': 0.1
+      'conv2_2': 0.1
+      'conv3_4': 1
+      'conv4_4': 1
+      'conv5_4': 1
+    vgg_type: vgg19
+    use_input_norm: true
+    perceptual_weight: !!float 0.1  # Balance with the GAN loss
+    style_weight: 0
+    range_norm: false
+    criterion: l1
+
+  # gan loss
+  gan_opt:
+    type: GANLoss
+    gan_type: vanilla
+    real_label_val: 1.0
+    fake_label_val: 0.0
+    loss_weight: !!float 0.1 # Increase GAN loss weight as D is now stable
+ 
+  net_d_iters: 2 # Train discriminator twice for every generator iteration
+  net_d_init_iters: 0
+
+# validation settings
+val:
+  val_freq: !!float 1000
+  save_img: False
+  pbar: False
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: False
+      better: higher  # the higher, the better. Default: higher
+    # ssim:
+    #   type: calculate_ssim
+    #   crop_border: 4
+    #   test_y_channel: False
+    #   better: higher  # the higher, the better. Default: higher
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 1000
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

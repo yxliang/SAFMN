@@ -40,16 +40,16 @@ def main():
     """
 
     opt = {}
-    opt['n_thread'] = 20
+    opt['n_thread'] = 12
     opt['compression_level'] = 3
 
-    # # HR images
-    # opt['input_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_HR'
-    # opt['save_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_HR_sub'
-    # opt['crop_size'] = 480
-    # opt['step'] = 240
-    # opt['thresh_size'] = 0
-    # extract_subimages(opt)
+    # HR images
+    opt['input_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_HR'
+    opt['save_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_HR_sub'
+    opt['crop_size'] = 320
+    opt['step'] = 160
+    opt['thresh_size'] = 0
+    extract_subimages(opt)
 
     # # LRx2 images
     # opt['input_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_LR_real/X2'
@@ -76,16 +76,16 @@ def main():
     # extract_subimages(opt)
 
     # LRx5 images
-    # opt['input_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_LR_real/X5'
-    # opt['save_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_LR_real/X5_sub'
-    opt['crop_size'] = 96
-    opt['step'] = 48
+    opt['input_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_LR_real/X5'
+    opt['save_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_train_LR_real/X5_sub'
+    opt['crop_size'] = 64
+    opt['step'] = 32
     opt['thresh_size'] = 0
-    # extract_subimages(opt)
-
-    opt['input_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_val_LR_real/X5'
-    opt['save_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_val_LR_real/X5_sub'
     extract_subimages(opt)
+
+    # opt['input_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_val_LR_real/X5'
+    # opt['save_folder'] = 'F:/Datasets/SuperResolution/DeepSR_real/DF2K_val_LR_real/X5_sub'
+    # extract_subimages(opt)
 
 def extract_subimages(opt):
     """Crop images to subimages.
